@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>ESP32 Control Dashboard</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body data-page="dashboard">
+    <main class="layout">
+      <header class="site-header">
+        <a class="brand" href="./index.html">ESP32 Control</a>
+        <nav class="site-nav">
+          <a class="nav-link" href="./index.html">Home</a>
+          <a class="nav-link" href="./auth.html">Auth</a>
+          <a class="nav-link is-active" href="./dashboard.html">Dashboard</a>
+        </nav>
+      </header>
+
+      <section class="hero">
+        <div class="hero-stack">
+          <p class="eyebrow">Dashboard</p>
+          <h1>Live device telemetry and relay control, without the clutter.</h1>
+          <p class="hero-copy">
+            Track water detection, relay state, and device health in one place. This dashboard stays static, but it should
+            still feel like an actual control surface.
+          </p>
+        </div>
+        <div class="panel inset-panel compact-panel session-panel">
+          <div class="panel-header">
+            <h2>Session</h2>
+            <span id="authBadge" class="badge neutral">Logged out</span>
+          </div>
+          <p id="dashboardHint" class="section-copy">
+            Login on the auth page before creating devices.
+          </p>
+          <div class="button-row">
+            <a class="button-link button-link-ghost" href="./auth.html">Open Auth</a>
+            <button id="logoutButton" class="danger-button" type="button">Logout</button>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-header">
+          <h2>Backend Target</h2>
+          <span id="connectionBadge" class="badge neutral">Configured</span>
+        </div>
+        <p class="panel-copy">
+          Keep one backend target, verify the API quickly, and let the state panel refresh around that connection.
+        </p>
+        <div class="form">
+          <div class="readonly-block">
+            <span class="readonly-label">API Base URL</span>
+            <code id="apiBaseUrlValue" class="readonly-value">Not configured</code>
+          </div>
+          <div class="button-row">
+            <button id="healthButton" type="button">Check Health</button>
+          </div>
+        </div>
+        <pre id="healthOutput" class="output">Health response will appear here.</pre>
+      </section>
+
+      <div class="grid">
+        <section class="panel">
+          <div class="panel-header">
+            <h2>Create Device</h2>
+            <span class="badge accent">Admin JWT required</span>
+          </div>
+          <p class="panel-copy">
+            Register a new ESP32 device entry, then immediately start monitoring it from the panel on the right.
+          </p>
+          <form id="deviceForm" class="form">
+            <label>
+              Device ID
+              <input id="deviceId" name="device_id" type="text" placeholder="esp32-water-001" required />
+            </label>
+            <label>
+              Device Secret
+              <input
+                id="deviceSecret"
+                name="device_secret"
+                type="text"
+                placeholder="super-secret-from-firmware"
+                minlength="8"
+                required
+              />
+            </label>
+            <label>
+              Name
+              <input id="deviceName" name="name" type="text" placeholder="greenhouse-valve-1" />
+            </label>
+            <button type="submit">Create Device</button>
+          </form>
+          <pre id="deviceOutput" class="output">Create a device after logging in.</pre>
+        </section>
+
+        <section class="panel">
+          <div class="panel-header">
+            <h2>Device State</h2>
+            <span id="deviceStateBadge" class="badge neutral">Unknown</span>
+          </div>
+          <p class="panel-copy">
+            Use a device ID once, then leave auto refresh running. Water level, wet/dry state, and relay status will keep
+            updating here.
+          </p>
+          <div class="form">
+            <label>
+              Device ID
+              <input id="stateDeviceId" name="state_device_id" type="text" placeholder="esp32-water-001" required />
+            </label>
+            <div class="button-row">
+              <button id="deviceStateButton" type="button">Check Device State</button>
+              <button id="deviceStateAutoButton" class="ghost-button" type="button">Start Auto Refresh</button>
+            </div>
+          </div>
+          <div class="status-grid">
+            <article class="status-card" id="stateIsActiveCard">
+              <span class="status-label">Active</span>
+              <strong id="stateIsActive" class="status-value">-</strong>
+            </article>
+            <article class="status-card" id="stateIsOnlineCard">
+              <span class="status-label">Online</span>
+              <strong id="stateIsOnline" class="status-value">-</strong>
+            </article>
+            <article class="status-card" id="stateWaterValueCard">
+              <span class="status-label">Water Value</span>
+              <strong id="stateWaterValue" class="status-value">-</strong>
+            </article>
+            <article class="status-card" id="stateWaterDetectedCard">
+              <span class="status-label">Water Detected</span>
+              <strong id="stateWaterDetected" class="status-value">-</strong>
+            </article>
+            <article class="status-card" id="stateRelayOpenCard">
+              <span class="status-label">Relay Actual</span>
+              <strong id="stateRelayOpen" class="status-value">-</strong>
+            </article>
+            <article class="status-card" id="stateDesiredRelayOpenCard">
+              <span class="status-label">Relay Desired</span>
+              <strong id="stateDesiredRelayOpen" class="status-value">-</strong>
+            </article>
+            <article class="status-card" id="stateAutoCloseCard">
+              <span class="status-label">Auto Close</span>
+              <strong id="stateAutoClose" class="status-value">-</strong>
+            </article>
+            <article class="status-card" id="stateLastSeenCard">
+              <span class="status-label">Last Seen</span>
+              <strong id="stateLastSeen" class="status-value status-value-small">-</strong>
+            </article>
+            <article class="status-card status-card-wide">
+              <span class="status-label">Firmware</span>
+              <strong id="stateFirmware" class="status-value status-value-small">-</strong>
+            </article>
+            <article class="status-card status-card-wide">
+              <span class="status-label">IP</span>
+              <strong id="stateIp" class="status-value status-value-small">-</strong>
+            </article>
+            <article class="status-card">
+              <span class="status-label">RSSI</span>
+              <strong id="stateRssi" class="status-value">-</strong>
+            </article>
+          </div>
+          <div class="control-panel">
+            <div class="control-heading">
+              <h3>Relay Controls</h3>
+              <p>Manual override is available, but auto-close still wins when water is detected and the feature is enabled.</p>
+            </div>
+            <div class="button-row">
+              <button id="relayOpenButton" type="button">Open Relay</button>
+              <button id="relayCloseButton" class="ghost-button" type="button">Close Relay</button>
+            </div>
+            <label class="checkbox-row">
+              <input id="autoCloseCheckbox" type="checkbox" />
+              <span>Automatically close relay when water is detected</span>
+            </label>
+            <div class="button-row">
+              <button id="saveRelaySettingsButton" type="button">Save Relay Settings</button>
+            </div>
+          </div>
+          <pre id="deviceStateOutput" class="output">Device state response will appear here.</pre>
+        </section>
+      </div>
+    </main>
+    <script src="./config.js"></script>
+    <script src="./app.js"></script>
+  </body>
+</html>

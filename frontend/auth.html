@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>ESP32 Control Auth</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body data-page="auth">
+    <main class="layout">
+      <header class="site-header">
+        <a class="brand" href="./index.html">ESP32 Control</a>
+        <nav class="site-nav">
+          <a class="nav-link" href="./index.html">Home</a>
+          <a class="nav-link is-active" href="./auth.html">Auth</a>
+          <a class="nav-link" href="./dashboard.html">Dashboard</a>
+        </nav>
+      </header>
+
+      <section class="hero">
+        <div class="hero-stack">
+          <p class="eyebrow">Authentication</p>
+          <h1>Sign in once, then move straight into the control dashboard.</h1>
+          <p class="hero-copy">
+            This page stores only the admin JWT in browser storage so the dashboard can reuse it.
+          </p>
+        </div>
+      </section>
+
+      <section class="panel auth-panel">
+        <div class="panel-header">
+          <h2>Admin Login</h2>
+          <span id="authBadge" class="badge neutral">Logged out</span>
+        </div>
+        <p class="panel-copy">
+          Use the backend admin credentials here. After login, the dashboard can fetch device state and send relay
+          changes without asking again.
+        </p>
+        <form id="loginForm" class="form">
+          <label>
+            Username
+            <input id="username" name="username" type="text" placeholder="admin" required />
+          </label>
+          <label>
+            Password
+            <input id="password" name="password" type="password" placeholder="admin123" required />
+          </label>
+          <div class="button-row">
+            <button type="submit">Login</button>
+            <a class="button-link button-link-ghost" href="./dashboard.html">Go to Dashboard</a>
+          </div>
+        </form>
+        <pre id="loginOutput" class="output">No token yet.</pre>
+      </section>
+    </main>
+    <script src="./config.js"></script>
+    <script src="./app.js"></script>
+  </body>
+</html>
