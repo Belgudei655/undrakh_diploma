@@ -15,8 +15,11 @@ class Settings(BaseSettings):
     jwt_secret: str
     jwt_algorithm: str = "HS256"
     jwt_exp_minutes: int = 60
-    heartbeat_poll_interval_ms: int = 1000
+    heartbeat_poll_interval_ms: int = 5000
+    command_poll_interval_ms: int = 1000
+    command_poll_idle_interval_ms: int = 3000
     device_offline_timeout_seconds: int = 60
+    sse_snapshot_interval_seconds: int = 5
     cors_allow_origins: list[str] = Field(default_factory=lambda: ["*"])
 
 

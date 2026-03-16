@@ -43,7 +43,20 @@ class DeviceTelemetryResponse(BaseModel):
     server_time: datetime
 
 
+class CommandSummary(BaseModel):
+    command_id: str
+    action: str
+    desired_relay_open: bool
+    status: str
+    created_at: datetime
+    delivered_at: datetime | None
+    acked_at: datetime | None
+    error_code: str | None
+
+
 class DeviceCommandResponse(BaseModel):
+    command_id: str | None = None
+    command_status: str | None = None
     desired_relay_open: bool
     auto_close_on_water_detect: bool
     poll_interval_ms: int
@@ -77,6 +90,7 @@ class DeviceStateResponse(BaseModel):
     relay_open: bool
     desired_relay_open: bool
     auto_close_on_water_detect: bool
+    latest_command: CommandSummary | None = None
 
 
 class DeviceRelayUpdateRequest(BaseModel):
@@ -89,3 +103,19 @@ class DeviceRelayUpdateResponse(BaseModel):
     relay_open: bool
     desired_relay_open: bool
     auto_close_on_water_detect: bool
+    latest_command: CommandSummary | None = None
+
+
+class DeviceCommandAckRequest(BaseModel):
+    command_id: str = Field(min_length=1, max_length=64)
+    result: str = Field(pattern="^(ok|error)$")
+    relay_open: bool | None = None
+    error_code: str | None = Field(default=None, max_length=64)
+
+
+class DeviceCommandAckResponse(BaseModel):
+    ok: bool
+    command_id: str
+    status: str
+    acked_at: datetime | None
+    error_code: str | None

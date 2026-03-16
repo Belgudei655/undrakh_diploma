@@ -78,6 +78,20 @@ def authenticate_admin(
     return AuthenticatedAdmin(username=username)
 
 
+def authenticate_admin_token(token: str, settings: Settings) -> AuthenticatedAdmin:
+    try:
+        payload = jwt.decode(token, settings.jwt_secret, algorithms=[settings.jwt_algorithm])
+    except InvalidTokenError as exc:
+        raise _admin_unauthorized() from exc
+
+    username = payload.get("sub")
+    role = payload.get("role")
+    if not isinstance(username, str) or role != "admin":
+        raise _admin_unauthorized()
+
+    return AuthenticatedAdmin(username=username)
+
+
 async def authenticate_device(
     device_id: str | None = Header(default=None, alias="X-Device-Id"),
     device_secret: str | None = Header(default=None, alias="X-Device-Secret"),

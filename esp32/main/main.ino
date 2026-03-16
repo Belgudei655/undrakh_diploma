@@ -9,6 +9,7 @@ const char* password = "";
 const char* heartbeatUrl = "http://192.168.1.11:8000/api/v1/device/heartbeat";
 const char* telemetryUrl = "http://192.168.1.11:8000/api/v1/device/telemetry";
 const char* commandUrl = "http://192.168.1.11:8000/api/v1/device/command";
+const char* commandAckUrl = "http://192.168.1.11:8000/api/v1/device/command-ack";
 const char* deviceId = "esp32-water-001";
 const char* deviceSecret = "super-secret-from-firmware";
 const char* firmwareVersion = "1.0.0";
@@ -120,11 +121,35 @@ bool extractBoolField(const String& response, const String& key, bool fallback) 
   return fallback;
 }
 
-void updatePollInterval(const String& response) {
+String extractStringField(const String& response, const String& key) {
+  int keyIndex = response.indexOf(key);
+  if (keyIndex < 0) {
+    return "";
+  }
+
+  int valueStart = keyIndex + key.length();
+  while (valueStart < response.length() && response.charAt(valueStart) == ' ') {
+    valueStart++;
+  }
+
+  if (valueStart >= response.length() || response.charAt(valueStart) != '"') {
+    return "";
+  }
+
+  valueStart++;
+  int valueEnd = response.indexOf("\"", valueStart);
+  if (valueEnd < 0) {
+    return "";
+  }
+
+  return response.substring(valueStart, valueEnd);
+}
+
+unsigned long extractPollInterval(const String& response) {
   const String key = "\"poll_interval_ms\":";
   int keyIndex = response.indexOf(key);
   if (keyIndex < 0) {
-    return;
+    return 0;
   }
 
   int valueStart = keyIndex + key.length();
@@ -133,18 +158,29 @@ void updatePollInterval(const String& response) {
     valueEnd = response.indexOf("}", valueStart);
   }
   if (valueEnd < 0) {
-    return;
+    return 0;
   }
 
   String value = response.substring(valueStart, valueEnd);
   value.trim();
-  unsigned long parsed = value.toInt();
+  return value.toInt();
+}
 
+void updateHeartbeatInterval(const String& response) {
+  unsigned long parsed = extractPollInterval(response);
   if (parsed >= 1000) {
     heartbeatIntervalMs = parsed;
-    commandPollIntervalMs = parsed;
     Serial.print("Updated heartbeat interval from server: ");
     Serial.println(heartbeatIntervalMs);
+  }
+}
+
+void updateCommandPollInterval(const String& response) {
+  unsigned long parsed = extractPollInterval(response);
+  if (parsed >= 500) {
+    commandPollIntervalMs = parsed;
+    Serial.print("Updated command poll interval from server: ");
+    Serial.println(commandPollIntervalMs);
   }
 }
 
@@ -177,6 +213,36 @@ void addCommonHeaders(HTTPClient& http) {
   http.addHeader("X-Device-Secret", deviceSecret);
 }
 
+void acknowledgeCommand(const String& commandId, bool ok) {
+  if (commandId.length() == 0 || WiFi.status() != WL_CONNECTED) {
+    return;
+  }
+
+  HTTPClient http;
+  http.begin(commandAckUrl);
+  addCommonHeaders(http);
+
+  String payload = "{";
+  payload += "\"command_id\":\"" + commandId + "\",";
+  payload += "\"result\":\"" + String(ok ? "ok" : "error") + "\",";
+  payload += "\"relay_open\":" + String(relayOpen ? "true" : "false");
+  payload += "}";
+
+  int statusCode = http.POST(payload);
+
+  Serial.print("Command ack HTTP code: ");
+  Serial.println(statusCode);
+  if (statusCode > 0) {
+    Serial.print("Command ack response: ");
+    Serial.println(http.getString());
+  } else {
+    Serial.print("Command ack failed: ");
+    Serial.println(http.errorToString(statusCode));
+  }
+
+  http.end();
+}
+
 void sendHeartbeat() {
   if (WiFi.status() != WL_CONNECTED) {
     Serial.println("Skipping heartbeat: WiFi disconnected");
@@ -204,7 +270,7 @@ void sendHeartbeat() {
     String response = http.getString();
     Serial.print("Heartbeat response: ");
     Serial.println(response);
-    updatePollInterval(response);
+    updateHeartbeatInterval(response);
   } else {
     Serial.print("Heartbeat failed: ");
     Serial.println(http.errorToString(statusCode));
@@ -268,9 +334,13 @@ void fetchCommand(int waterValue) {
     String response = http.getString();
     Serial.print("Command response: ");
     Serial.println(response);
-    updatePollInterval(response);
+    updateCommandPollInterval(response);
     updateRelaySettingsFromResponse(response);
     applyServerRelayPolicy(waterValue);
+    String commandId = extractStringField(response, "\"command_id\":");
+    if (commandId.length() > 0) {
+      acknowledgeCommand(commandId, true);
+    }
   } else {
     Serial.print("Command poll failed: ");
     Serial.println(http.errorToString(statusCode));

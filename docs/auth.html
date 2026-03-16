@@ -4,6 +4,9 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>ESP32 Control Auth</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="./styles.css" />
   </head>
   <body data-page="auth">
@@ -17,7 +20,7 @@
         </nav>
       </header>
 
-      <section class="hero">
+      <section class="hero animate-fade-in">
         <div class="hero-stack">
           <p class="eyebrow">Authentication</p>
           <h1>Sign in once, then move straight into the control dashboard.</h1>
@@ -27,7 +30,7 @@
         </div>
       </section>
 
-      <section class="panel auth-panel">
+      <section class="panel auth-panel animate-fade-in delay-1">
         <div class="panel-header">
           <h2>Admin Login</h2>
           <span id="authBadge" class="badge neutral">Logged out</span>
@@ -37,6 +40,18 @@
           changes without asking again.
         </p>
         <form id="loginForm" class="form">
+          <label>
+            Server Location
+            <select id="serverSelect" name="server_select">
+              <option value="render">Render (Cloud)</option>
+              <option value="raspi">Raspberry Pi (Local)</option>
+              <option value="custom">Custom Server...</option>
+            </select>
+          </label>
+          <label id="customServerLabel" style="display: none;">
+            Custom Backend URL (e.g. http://192.168.1.5:8000)
+            <input id="customServerUrl" name="custom_server_url" type="text" placeholder="https://your-server.com" />
+          </label>
           <label>
             Username
             <input id="username" name="username" type="text" placeholder="admin" required />

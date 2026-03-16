@@ -1,11 +1,10 @@
 const state = {
-  apiBaseUrl: (window.APP_CONFIG && window.APP_CONFIG.API_BASE_URL) || "",
+  apiBaseUrl: localStorage.getItem("apiBaseUrl") || (window.APP_CONFIG && window.APP_CONFIG.API_BASE_URL) || "",
   token: localStorage.getItem("adminToken") || "",
-  deviceStateIntervalId: null,
+  deviceEventsSource: null,
   selectedDeviceId: localStorage.getItem("selectedDeviceId") || "",
+  latestCommand: null,
 };
-
-const deviceStateRefreshIntervalMs = 1000;
 
 const page = document.body.dataset.page || "";
 const currentPath = window.location.pathname;
@@ -19,6 +18,9 @@ const elements = {
   logoutButton: document.getElementById("logoutButton"),
   loginForm: document.getElementById("loginForm"),
   loginOutput: document.getElementById("loginOutput"),
+  serverSelect: document.getElementById("serverSelect"),
+  customServerLabel: document.getElementById("customServerLabel"),
+  customServerUrl: document.getElementById("customServerUrl"),
   deviceForm: document.getElementById("deviceForm"),
   deviceOutput: document.getElementById("deviceOutput"),
   deviceStateBadge: document.getElementById("deviceStateBadge"),
@@ -32,6 +34,8 @@ const elements = {
   stateWaterDetectedCard: document.getElementById("stateWaterDetectedCard"),
   stateRelayOpenCard: document.getElementById("stateRelayOpenCard"),
   stateDesiredRelayOpenCard: document.getElementById("stateDesiredRelayOpenCard"),
+  stateCommandStatusCard: document.getElementById("stateCommandStatusCard"),
+  stateCommandDetailCard: document.getElementById("stateCommandDetailCard"),
   stateAutoCloseCard: document.getElementById("stateAutoCloseCard"),
   stateLastSeenCard: document.getElementById("stateLastSeenCard"),
   stateIsActive: document.getElementById("stateIsActive"),
@@ -40,6 +44,8 @@ const elements = {
   stateWaterDetected: document.getElementById("stateWaterDetected"),
   stateRelayOpen: document.getElementById("stateRelayOpen"),
   stateDesiredRelayOpen: document.getElementById("stateDesiredRelayOpen"),
+  stateCommandStatus: document.getElementById("stateCommandStatus"),
+  stateCommandDetail: document.getElementById("stateCommandDetail"),
   stateAutoClose: document.getElementById("stateAutoClose"),
   stateLastSeen: document.getElementById("stateLastSeen"),
   stateFirmware: document.getElementById("stateFirmware"),
@@ -54,11 +60,17 @@ const elements = {
 };
 
 function setBadge(node, label, tone) {
+  if (!node) {
+    return;
+  }
   node.textContent = label;
   node.className = `badge ${tone}`;
 }
 
 function writeOutput(node, payload) {
+  if (!node) {
+    return;
+  }
   node.textContent = typeof payload === "string" ? payload : JSON.stringify(payload, null, 2);
 }
 
@@ -72,7 +84,7 @@ function setCardTone(node, tone) {
   if (!node) {
     return;
   }
-  node.classList.remove("is-good", "is-warn", "is-live");
+  node.classList.remove("is-good", "is-warn", "is-live", "is-pending");
   if (tone) {
     node.classList.add(tone);
   }
@@ -153,6 +165,40 @@ async function request(path, options = {}) {
   return data;
 }
 
+function renderLatestCommand(command) {
+  state.latestCommand = command || null;
+
+  if (!command) {
+    setText(elements.stateCommandStatus, "-");
+    setText(elements.stateCommandDetail, "No relay command yet.");
+    setCardTone(elements.stateCommandStatusCard, null);
+    setCardTone(elements.stateCommandDetailCard, null);
+    return;
+  }
+
+  const status = String(command.status || "-").toUpperCase();
+  const desiredState = command.desired_relay_open ? "OPEN" : "CLOSE";
+  const timestamp = command.acked_at || command.delivered_at || command.created_at;
+  const detail = `${command.action} -> ${desiredState} at ${formatTimestamp(timestamp)}`;
+
+  setText(elements.stateCommandStatus, status);
+  setText(elements.stateCommandDetail, command.error_code ? `${detail} (${command.error_code})` : detail);
+
+  if (command.status === "acked") {
+    setCardTone(elements.stateCommandStatusCard, "is-good");
+    setCardTone(elements.stateCommandDetailCard, "is-good");
+    return;
+  }
+  if (command.status === "failed" || command.status === "expired") {
+    setCardTone(elements.stateCommandStatusCard, "is-warn");
+    setCardTone(elements.stateCommandDetailCard, "is-warn");
+    return;
+  }
+
+  setCardTone(elements.stateCommandStatusCard, "is-pending");
+  setCardTone(elements.stateCommandDetailCard, "is-pending");
+}
+
 function resetDeviceStateSummary() {
   setText(elements.stateIsActive, "-");
   setText(elements.stateIsOnline, "-");
@@ -165,6 +211,7 @@ function resetDeviceStateSummary() {
   setText(elements.stateFirmware, "-");
   setText(elements.stateIp, "-");
   setText(elements.stateRssi, "-");
+  renderLatestCommand(null);
   if (elements.autoCloseCheckbox) {
     elements.autoCloseCheckbox.checked = false;
   }
@@ -190,6 +237,8 @@ function renderDeviceState(data) {
   setText(elements.stateFirmware, data.firmware_version || "-");
   setText(elements.stateIp, data.last_ip || "-");
   setText(elements.stateRssi, data.last_rssi ?? "-");
+  renderLatestCommand(data.latest_command || null);
+
   if (elements.autoCloseCheckbox) {
     elements.autoCloseCheckbox.checked = Boolean(data.auto_close_on_water_detect);
   }
@@ -202,6 +251,7 @@ function renderDeviceState(data) {
   setCardTone(elements.stateDesiredRelayOpenCard, data.desired_relay_open ? "is-live" : null);
   setCardTone(elements.stateAutoCloseCard, data.auto_close_on_water_detect ? "is-good" : null);
   setCardTone(elements.stateLastSeenCard, data.online ? "is-live" : null);
+  setBadge(elements.deviceStateBadge, data.online ? "Live" : "Offline", data.online ? "success" : "error");
 }
 
 function getSelectedDeviceId() {
@@ -214,6 +264,16 @@ function getSelectedDeviceId() {
 function saveSelectedDeviceId(value) {
   state.selectedDeviceId = value;
   localStorage.setItem("selectedDeviceId", value);
+}
+
+function stopDeviceStateLiveUpdates() {
+  if (state.deviceEventsSource) {
+    state.deviceEventsSource.close();
+    state.deviceEventsSource = null;
+  }
+  if (elements.deviceStateAutoButton) {
+    elements.deviceStateAutoButton.textContent = "Start Live Updates";
+  }
 }
 
 async function fetchDeviceState() {
@@ -245,7 +305,6 @@ async function fetchDeviceState() {
         Authorization: `Bearer ${state.token}`,
       },
     });
-    setBadge(elements.deviceStateBadge, data.online ? "Online" : "Offline", data.online ? "success" : "error");
     renderDeviceState(data);
     writeOutput(elements.deviceStateOutput, data);
   } catch (error) {
@@ -255,8 +314,102 @@ async function fetchDeviceState() {
   }
 }
 
+function connectDeviceStateLiveUpdates() {
+  const deviceId = getSelectedDeviceId();
+
+  if (!state.apiBaseUrl) {
+    writeOutput(elements.deviceStateOutput, "Set window.APP_CONFIG.API_BASE_URL in config.js");
+    return;
+  }
+  if (!state.token) {
+    writeOutput(elements.deviceStateOutput, "Login first to start live updates.");
+    return;
+  }
+  if (!deviceId) {
+    writeOutput(elements.deviceStateOutput, "Enter a device ID first.");
+    return;
+  }
+  if (typeof window.EventSource !== "function") {
+    writeOutput(elements.deviceStateOutput, "This browser does not support EventSource.");
+    return;
+  }
+
+  stopDeviceStateLiveUpdates();
+  setBadge(elements.deviceStateBadge, "Connecting", "accent");
+  writeOutput(elements.deviceStateOutput, `Connecting live stream for ${deviceId} ...`);
+
+  const eventsUrl = `${buildUrl(`/api/v1/devices/${encodeURIComponent(deviceId)}/events`)}?token=${encodeURIComponent(
+    state.token,
+  )}`;
+  const source = new window.EventSource(eventsUrl);
+  state.deviceEventsSource = source;
+
+  source.onopen = () => {
+    if (state.deviceEventsSource !== source) {
+      return;
+    }
+    if (elements.deviceStateAutoButton) {
+      elements.deviceStateAutoButton.textContent = "Stop Live Updates";
+    }
+    setBadge(elements.deviceStateBadge, "Stream Live", "accent");
+  };
+
+  source.addEventListener("device.snapshot", (event) => {
+    if (state.deviceEventsSource !== source) {
+      return;
+    }
+    const data = JSON.parse(event.data);
+    renderDeviceState(data);
+    writeOutput(elements.deviceStateOutput, data);
+  });
+
+  source.addEventListener("command.updated", (event) => {
+    if (state.deviceEventsSource !== source) {
+      return;
+    }
+    const data = JSON.parse(event.data);
+    renderLatestCommand(data);
+    writeOutput(elements.deviceStateOutput, {
+      type: "command.updated",
+      command: data,
+    });
+  });
+
+  source.addEventListener("telemetry.updated", (event) => {
+    if (state.deviceEventsSource !== source) {
+      return;
+    }
+    writeOutput(elements.deviceStateOutput, {
+      type: "telemetry.updated",
+      data: JSON.parse(event.data),
+    });
+  });
+
+  source.onerror = () => {
+    if (state.deviceEventsSource !== source) {
+      return;
+    }
+    setBadge(elements.deviceStateBadge, "Reconnecting", "accent");
+  };
+}
+
+function toggleDeviceStateAutoRefresh() {
+  if (state.deviceEventsSource) {
+    stopDeviceStateLiveUpdates();
+    return;
+  }
+  connectDeviceStateLiveUpdates();
+}
+
+function startDeviceStateAutoRefresh() {
+  if (!elements.deviceStateAutoButton || state.deviceEventsSource) {
+    return;
+  }
+  connectDeviceStateLiveUpdates();
+}
+
 async function updateRelaySettings(payload) {
-  const deviceId = elements.stateDeviceId ? elements.stateDeviceId.value.trim() : "";
+  const deviceId = getSelectedDeviceId();
 
   if (!state.apiBaseUrl) {
     writeOutput(elements.deviceStateOutput, "Set window.APP_CONFIG.API_BASE_URL in config.js");
@@ -280,33 +433,16 @@ async function updateRelaySettings(payload) {
       },
       body: JSON.stringify(payload),
     });
+    if (data.latest_command) {
+      renderLatestCommand(data.latest_command);
+    }
     writeOutput(elements.deviceStateOutput, data);
-    await fetchDeviceState();
+    if (!state.deviceEventsSource) {
+      await fetchDeviceState();
+    }
   } catch (error) {
     writeOutput(elements.deviceStateOutput, error.message);
   }
-}
-
-function toggleDeviceStateAutoRefresh() {
-  if (state.deviceStateIntervalId) {
-    window.clearInterval(state.deviceStateIntervalId);
-    state.deviceStateIntervalId = null;
-    elements.deviceStateAutoButton.textContent = "Start Auto Refresh";
-    return;
-  }
-
-  fetchDeviceState();
-  state.deviceStateIntervalId = window.setInterval(fetchDeviceState, deviceStateRefreshIntervalMs);
-  elements.deviceStateAutoButton.textContent = "Stop Auto Refresh";
-}
-
-function startDeviceStateAutoRefresh() {
-  if (!elements.deviceStateAutoButton || state.deviceStateIntervalId) {
-    return;
-  }
-  fetchDeviceState();
-  state.deviceStateIntervalId = window.setInterval(fetchDeviceState, deviceStateRefreshIntervalMs);
-  elements.deviceStateAutoButton.textContent = "Stop Auto Refresh";
 }
 
 function syncUi() {
@@ -359,8 +495,28 @@ if (elements.healthButton) {
 if (elements.loginForm) {
   elements.loginForm.addEventListener("submit", async (event) => {
     event.preventDefault();
+    
+    if (elements.serverSelect) {
+      let selectedUrl = "";
+      if (elements.serverSelect.value === "render") {
+        selectedUrl = window.APP_CONFIG && window.APP_CONFIG.API_BASE_URL;
+      } else if (elements.serverSelect.value === "raspi") {
+        selectedUrl = "https://undrakh-diploma.onrender.com"; // Updated to the provided URL
+      } else {
+        selectedUrl = elements.customServerUrl.value.trim();
+      }
+      if (!selectedUrl) {
+        writeOutput(elements.loginOutput, "Please provide a valid server URL.");
+        return;
+      }
+      state.apiBaseUrl = selectedUrl;
+      localStorage.setItem("apiBaseUrl", selectedUrl);
+    }
+
     const formData = new FormData(event.currentTarget);
     const payload = Object.fromEntries(formData.entries());
+    delete payload.server_select;
+    delete payload.custom_server_url;
 
     writeOutput(elements.loginOutput, "Logging in ...");
     try {
@@ -386,10 +542,7 @@ if (elements.loginForm) {
 
 if (elements.logoutButton) {
   elements.logoutButton.addEventListener("click", () => {
-    if (state.deviceStateIntervalId) {
-      window.clearInterval(state.deviceStateIntervalId);
-      state.deviceStateIntervalId = null;
-    }
+    stopDeviceStateLiveUpdates();
     state.token = "";
     localStorage.removeItem("adminToken");
     navigateTo("auth.html");
@@ -442,8 +595,8 @@ if (elements.deviceId && elements.stateDeviceId) {
 if (elements.stateDeviceId) {
   elements.stateDeviceId.addEventListener("input", (event) => {
     saveSelectedDeviceId(event.target.value.trim());
-    if (state.deviceStateIntervalId) {
-      fetchDeviceState();
+    if (state.deviceEventsSource) {
+      connectDeviceStateLiveUpdates();
     }
   });
 }
@@ -475,6 +628,32 @@ if (elements.saveRelaySettingsButton) {
     });
   });
 }
+
+if (elements.serverSelect) {
+  const currentUrl = state.apiBaseUrl;
+  const renderUrl = window.APP_CONFIG && window.APP_CONFIG.API_BASE_URL;
+  const raspiUrl = "https://undrakh-diploma.onrender.com";
+
+  if (currentUrl && currentUrl === renderUrl) {
+    elements.serverSelect.value = "render";
+  } else if (currentUrl === raspiUrl) {
+    elements.serverSelect.value = "raspi";
+  } else if (currentUrl) {
+    elements.serverSelect.value = "custom";
+    if (elements.customServerLabel) elements.customServerLabel.style.display = "grid";
+    if (elements.customServerUrl) elements.customServerUrl.value = currentUrl;
+  }
+
+  elements.serverSelect.addEventListener("change", (e) => {
+    if (e.target.value === "custom") {
+      if (elements.customServerLabel) elements.customServerLabel.style.display = "grid";
+    } else {
+      if (elements.customServerLabel) elements.customServerLabel.style.display = "none";
+    }
+  });
+}
+
+window.addEventListener("beforeunload", stopDeviceStateLiveUpdates);
 
 requireAuth();
 syncUi();

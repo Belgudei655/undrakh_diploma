@@ -39,9 +39,9 @@ async def _ensure_device_columns(connection) -> None:
 
 
 async def init_db() -> None:
-    from app.models import Device
+    from app.models import Command, Device
 
-    _ = Device
+    _ = (Device, Command)
     async with engine.begin() as connection:
         await connection.run_sync(Base.metadata.create_all)
         await _ensure_device_columns(connection)
